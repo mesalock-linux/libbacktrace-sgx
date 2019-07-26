@@ -47,110 +47,111 @@ POSSIBILITY OF SUCH DAMAGE.  */
 /* Allocate memory like malloc.  If ERROR_CALLBACK is NULL, don't
    report an error.  */
 
-void *
-backtrace_alloc (struct backtrace_state *state ATTRIBUTE_UNUSED,
-		 size_t size, backtrace_error_callback error_callback,
-		 void *data)
-{
-  void *ret;
+void*
+backtrace_alloc(struct backtrace_state* state ATTRIBUTE_UNUSED,
+                size_t size, backtrace_error_callback error_callback,
+                void* data) {
+    void* ret = NULL;
 
-  ret = malloc (size);
-  if (ret == NULL)
-    {
-      if (error_callback)
-	error_callback (data, "malloc", errno);
+    ret = malloc(size);
+
+    if (ret == NULL) {
+        if (error_callback) {
+            error_callback(data, "malloc", errno);
+        }
     }
-  return ret;
+
+    return ret;
 }
 
 /* Free memory.  */
 
 void
-backtrace_free (struct backtrace_state *state ATTRIBUTE_UNUSED,
-		void *p, size_t size ATTRIBUTE_UNUSED,
-		backtrace_error_callback error_callback ATTRIBUTE_UNUSED,
-		void *data ATTRIBUTE_UNUSED)
-{
-  free (p);
+backtrace_free(struct backtrace_state* state ATTRIBUTE_UNUSED,
+               void* p, size_t size ATTRIBUTE_UNUSED,
+               backtrace_error_callback error_callback ATTRIBUTE_UNUSED,
+               void* data ATTRIBUTE_UNUSED) {
+    free(p);
 }
 
 /* Grow VEC by SIZE bytes.  */
 
-void *
-backtrace_vector_grow (struct backtrace_state *state ATTRIBUTE_UNUSED,
-		       size_t size, backtrace_error_callback error_callback,
-		       void *data, struct backtrace_vector *vec)
-{
-  void *ret;
+void*
+backtrace_vector_grow(struct backtrace_state* state ATTRIBUTE_UNUSED,
+                      size_t size, backtrace_error_callback error_callback,
+                      void* data, struct backtrace_vector* vec) {
+    void* ret = NULL;
 
-  if (size > vec->alc)
-    {
-      size_t alc;
-      void *base;
+    if (size > vec->alc) {
+        size_t alc = 0;
+        void* base = NULL;
 
-      if (vec->size == 0)
-	alc = 32 * size;
-      else if (vec->size >= 4096)
-	alc = vec->size + 4096;
-      else
-	alc = 2 * vec->size;
+        if (vec->size == 0) {
+            alc = 32 * size;
+        } else if (vec->size >= 4096) {
+            alc = vec->size + 4096;
+        } else {
+            alc = 2 * vec->size;
+        }
 
-      if (alc < vec->size + size)
-	alc = vec->size + size;
+        if (alc < vec->size + size) {
+            alc = vec->size + size;
+        }
 
-      base = realloc (vec->base, alc);
-      if (base == NULL)
-	{
-	  error_callback (data, "realloc", errno);
-	  return NULL;
-	}
+        base = realloc(vec->base, alc);
 
-      vec->base = base;
-      vec->alc = alc - vec->size;
+        if (base == NULL) {
+            error_callback(data, "realloc", errno);
+            return NULL;
+        }
+
+        vec->base = base;
+        vec->alc = alc - vec->size;
     }
 
-  ret = (char *) vec->base + vec->size;
-  vec->size += size;
-  vec->alc -= size;
-  return ret;
+    ret = (char*) vec->base + vec->size;
+    vec->size += size;
+    vec->alc -= size;
+    return ret;
 }
 
 /* Finish the current allocation on VEC.  */
 
-void *
-backtrace_vector_finish (struct backtrace_state *state,
-			 struct backtrace_vector *vec,
-			 backtrace_error_callback error_callback,
-			 void *data)
-{
-  void *ret;
+void*
+backtrace_vector_finish(struct backtrace_state* state,
+                        struct backtrace_vector* vec,
+                        backtrace_error_callback error_callback,
+                        void* data) {
+    void* ret = NULL;
 
-  /* With this allocator we call realloc in backtrace_vector_grow,
-     which means we can't easily reuse the memory here.  So just
-     release it.  */
-  if (!backtrace_vector_release (state, vec, error_callback, data))
-    return NULL;
-  ret = vec->base;
-  vec->base = NULL;
-  vec->size = 0;
-  vec->alc = 0;
-  return ret;
+    /* With this allocator we call realloc in backtrace_vector_grow,
+       which means we can't easily reuse the memory here.  So just
+       release it.  */
+    if (!backtrace_vector_release(state, vec, error_callback, data)) {
+        return NULL;
+    }
+
+    ret = vec->base;
+    vec->base = NULL;
+    vec->size = 0;
+    vec->alc = 0;
+    return ret;
 }
 
 /* Release any extra space allocated for VEC.  */
 
 int
-backtrace_vector_release (struct backtrace_state *state ATTRIBUTE_UNUSED,
-			  struct backtrace_vector *vec,
-			  backtrace_error_callback error_callback,
-			  void *data)
-{
-  vec->base = realloc (vec->base, vec->size);
-  if (vec->base == NULL)
-    {
-      error_callback (data, "realloc", errno);
-      return 0;
+backtrace_vector_release(struct backtrace_state* state ATTRIBUTE_UNUSED,
+                         struct backtrace_vector* vec,
+                         backtrace_error_callback error_callback,
+                         void* data) {
+    vec->base = realloc(vec->base, vec->size);
+
+    if (vec->base == NULL) {
+        error_callback(data, "realloc", errno);
+        return 0;
     }
-  vec->alc = 0;
-  return 1;
+
+    vec->alc = 0;
+    return 1;
 }

@@ -38,6 +38,7 @@ POSSIBILITY OF SUCH DAMAGE.  */
 #include <unistd.h>
 
 #include "backtrace.h"
+#include "backtrace_t.h"
 #include "internal.h"
 
 /* This file implements file views when mmap is not available.  */
@@ -45,52 +46,64 @@ POSSIBILITY OF SUCH DAMAGE.  */
 /* Create a view of SIZE bytes from DESCRIPTOR at OFFSET.  */
 
 int
-backtrace_get_view (struct backtrace_state *state, int descriptor,
-		    off_t offset, size_t size,
-		    backtrace_error_callback error_callback,
-		    void *data, struct backtrace_view *view)
-{
-  ssize_t got;
+backtrace_get_view(struct backtrace_state* state, int descriptor,
+                   off_t offset, size_t size,
+                   backtrace_error_callback error_callback,
+                   void* data, struct backtrace_view* view) {
+    ssize_t got = 0;
+    int error = 0;
+    off_t retval = 0;
+    uint32_t status = 0;
 
-  if (lseek (descriptor, offset, SEEK_SET) < 0)
-    {
-      error_callback (data, "lseek", errno);
-      return 0;
+
+    status = u_lseek_ocall((uint64_t *)&retval, &error, descriptor, offset, SEEK_SET);
+    if (status != 0) {
+        error_callback(data, "sgx ocall failed", status);
+        return 0;
+    }
+    if (retval < 0) {
+        error_callback(data, "lseek", error);
+        return 0;
     }
 
-  view->base = backtrace_alloc (state, size, error_callback, data);
-  if (view->base == NULL)
-    return 0;
-  view->data = view->base;
-  view->len = size;
+    view->base = backtrace_alloc(state, size, error_callback, data);
 
-  got = read (descriptor, view->base, size);
-  if (got < 0)
-    {
-      error_callback (data, "read", errno);
-      free (view->base);
-      return 0;
+    if (view->base == NULL) {
+        return 0;
     }
 
-  if ((size_t) got < size)
-    {
-      error_callback (data, "file too short", 0);
-      free (view->base);
-      return 0;
+    view->data = view->base;
+    view->len = size;
+
+    status = u_read_ocall((size_t *)&got, &error, descriptor, view->base, size);
+    if (status != 0) {
+        error_callback(data, "sgx ocall failed", status);
+        free(view->base);
+        return 0;
+    }
+    if (got < 0) {
+        error_callback(data, "read", error);
+        free(view->base);
+        return 0;
     }
 
-  return 1;
+    if ((size_t) got < size) {
+        error_callback(data, "file too short", 0);
+        free(view->base);
+        return 0;
+    }
+
+    return 1;
 }
 
 /* Release a view read by backtrace_get_view.  */
 
 void
-backtrace_release_view (struct backtrace_state *state,
-			struct backtrace_view *view,
-			backtrace_error_callback error_callback,
-			void *data)
-{
-  backtrace_free (state, view->base, view->len, error_callback, data);
-  view->data = NULL;
-  view->base = NULL;
+backtrace_release_view(struct backtrace_state* state,
+                       struct backtrace_view* view,
+                       backtrace_error_callback error_callback,
+                       void* data) {
+    backtrace_free(state, view->base, view->len, error_callback, data);
+    view->data = NULL;
+    view->base = NULL;
 }

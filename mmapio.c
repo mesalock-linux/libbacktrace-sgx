@@ -34,11 +34,28 @@ POSSIBILITY OF SUCH DAMAGE.  */
 
 #include <errno.h>
 #include <sys/types.h>
-#include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "backtrace.h"
+#include "backtrace_t.h"
 #include "internal.h"
+
+#ifndef PROT_READ
+#define PROT_READ 0x1
+#endif
+
+#ifndef PROT_WRITE
+#define PROT_WRITE 0x2
+#endif
+
+#ifndef MAP_SHARED
+#define MAP_SHARED 0x01
+#endif
+
+#ifndef MAP_PRIVATE
+#define MAP_PRIVATE 0x02
+#endif
 
 #ifndef MAP_FAILED
 #define MAP_FAILED ((void *)-1)
@@ -50,51 +67,69 @@ POSSIBILITY OF SUCH DAMAGE.  */
 /* Create a view of SIZE bytes from DESCRIPTOR at OFFSET.  */
 
 int
-backtrace_get_view (struct backtrace_state *state ATTRIBUTE_UNUSED,
-		    int descriptor, off_t offset, size_t size,
-		    backtrace_error_callback error_callback,
-		    void *data, struct backtrace_view *view)
-{
-  size_t pagesize;
-  unsigned int inpage;
-  off_t pageoff;
-  void *map;
+backtrace_get_view(struct backtrace_state* state ATTRIBUTE_UNUSED,
+                   int descriptor, off_t offset, size_t size,
+                   backtrace_error_callback error_callback,
+                   void* data, struct backtrace_view* view) {
+    size_t pagesize = 0;
+    unsigned int inpage = 0;
+    off_t pageoff;
+    void* map = NULL;
+    int error = 0;
 
-  pagesize = getpagesize ();
-  inpage = offset % pagesize;
-  pageoff = offset - inpage;
+    pagesize = getpagesize();
+    inpage = offset % pagesize;
+    pageoff = offset - inpage;
 
-  size += inpage;
-  size = (size + (pagesize - 1)) & ~ (pagesize - 1);
+    size += inpage;
+    size = (size + (pagesize - 1)) & ~(pagesize - 1);
 
-  map = mmap (NULL, size, PROT_READ, MAP_PRIVATE, descriptor, pageoff);
-  if (map == MAP_FAILED)
-    {
-      error_callback (data, "mmap", errno);
-      return 0;
+    uint32_t status = u_mmap_ocall(&map, &error, NULL, size, PROT_READ, MAP_PRIVATE,
+                      descriptor, pageoff);
+
+    if (status != 0) {
+        error_callback(data, "sgx ocall failed", status);
+        return 0;
     }
 
-  view->data = (char *) map + inpage;
-  view->base = map;
-  view->len = size;
+    //map = mmap (NULL, size, PROT_READ, MAP_PRIVATE, descriptor, pageoff);
+    if (map == MAP_FAILED) {
+        error_callback(data, "mmap", error);
+        return 0;
+    }
 
-  return 1;
+    view->data = (char*) map + inpage;
+    view->base = map;
+    view->len = size;
+
+    return 1;
 }
 
 /* Release a view read by backtrace_get_view.  */
 
 void
-backtrace_release_view (struct backtrace_state *state ATTRIBUTE_UNUSED,
-			struct backtrace_view *view,
-			backtrace_error_callback error_callback,
-			void *data)
-{
-  union {
-    const void *cv;
-    void *v;
-  } const_cast;
+backtrace_release_view(struct backtrace_state* state ATTRIBUTE_UNUSED,
+                       struct backtrace_view* view,
+                       backtrace_error_callback error_callback,
+                       void* data) {
+    union {
+        const void* cv;
+        void* v;
+    } const_cast;
 
-  const_cast.cv = view->base;
-  if (munmap (const_cast.v, view->len) < 0)
-    error_callback (data, "munmap", errno);
+    const_cast.cv = view->base;
+    //if (munmap (const_cast.v, view->len) < 0)
+    //  error_callback (data, "munmap", errno);
+
+    int retval = 0;
+    int error = 0;
+    uint32_t status = u_munmap_ocall(&retval, &error, const_cast.v, view->len);
+
+    if (status != 0) {
+        error_callback(data, "sgx ocall failed", status);
+    } else if (retval == -1) {
+        error_callback(data, "munmap", error);
+    }
+
+    return;
 }

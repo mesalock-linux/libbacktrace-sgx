@@ -42,25 +42,23 @@ POSSIBILITY OF SUCH DAMAGE.  */
    available.  */
 
 int
-backtrace_full (struct backtrace_state *state ATTRIBUTE_UNUSED,
-		int skip ATTRIBUTE_UNUSED,
-		backtrace_full_callback callback ATTRIBUTE_UNUSED,
-		backtrace_error_callback error_callback, void *data)
-{
-  error_callback (data,
-		  "no stack trace because unwind library not available",
-		  0);
-  return 0;
+backtrace_full(struct backtrace_state* state ATTRIBUTE_UNUSED,
+               int skip ATTRIBUTE_UNUSED,
+               backtrace_full_callback callback ATTRIBUTE_UNUSED,
+               backtrace_error_callback error_callback, void* data) {
+    error_callback(data,
+                   "no stack trace because unwind library not available",
+                   0);
+    return 0;
 }
 
 int
-backtrace_simple (struct backtrace_state *state ATTRIBUTE_UNUSED,
-		  int skip ATTRIBUTE_UNUSED,
-		  backtrace_simple_callback callback ATTRIBUTE_UNUSED,
-		  backtrace_error_callback error_callback, void *data)
-{
-  error_callback (data,
-		  "no stack trace because unwind library not available",
-		  0);
-  return 0;
+backtrace_simple(struct backtrace_state* state ATTRIBUTE_UNUSED,
+                 int skip ATTRIBUTE_UNUSED,
+                 backtrace_simple_callback callback ATTRIBUTE_UNUSED,
+                 backtrace_error_callback error_callback, void* data) {
+    error_callback(data,
+                   "no stack trace because unwind library not available",
+                   0);
+    return 0;
 }

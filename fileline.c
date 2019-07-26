@@ -1,5 +1,5 @@
 /* fileline.c -- Get file and line number information in a backtrace.
-   Copyright (C) 2012-2018 Free Software Foundation, Inc.
+   Copyright (C) 2012-2016 Free Software Foundation, Inc.
    Written by Ian Lance Taylor, Google.
 
 Redistribution and use in source and binary forms, with or without
@@ -35,9 +35,9 @@ POSSIBILITY OF SUCH DAMAGE.  */
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <errno.h>
-#include <fcntl.h>
+//#include <fcntl.h>
 #include <stdlib.h>
-#include <unistd.h>
+//#include <unistd.h>
 
 #include "backtrace.h"
 #include "internal.h"
@@ -50,152 +50,153 @@ POSSIBILITY OF SUCH DAMAGE.  */
    on success, 0 on failure.  */
 
 static int
-fileline_initialize (struct backtrace_state *state,
-		     backtrace_error_callback error_callback, void *data)
-{
-  int failed;
-  fileline fileline_fn;
-  int pass;
-  int called_error_callback;
-  int descriptor;
-  const char *filename;
-  char buf[64];
+fileline_initialize(struct backtrace_state* state,
+                    backtrace_error_callback error_callback, void* data) {
+    int failed = 0;
+    fileline fileline_fn = NULL;
+    int pass = 0;
+    int called_error_callback = 0;
+    int descriptor = 0;
+    const char* filename = NULL;
 
-  if (!state->threaded)
-    failed = state->fileline_initialization_failed;
-  else
-    failed = backtrace_atomic_load_int (&state->fileline_initialization_failed);
-
-  if (failed)
-    {
-      error_callback (data, "failed to read executable information", -1);
-      return 0;
+    if (!state->threaded) {
+        failed = state->fileline_initialization_failed;
+    } else {
+        failed = backtrace_atomic_load_int(&state->fileline_initialization_failed);
     }
 
-  if (!state->threaded)
-    fileline_fn = state->fileline_fn;
-  else
-    fileline_fn = backtrace_atomic_load_pointer (&state->fileline_fn);
-  if (fileline_fn != NULL)
+    if (failed) {
+        error_callback(data, "failed to read executable information", -1);
+        return 0;
+    }
+
+    if (!state->threaded) {
+        fileline_fn = state->fileline_fn;
+    } else {
+        fileline_fn = backtrace_atomic_load_pointer(&state->fileline_fn);
+    }
+
+    if (fileline_fn != NULL) {
+        return 1;
+    }
+
+    /* We have not initialized the information.  Do it now.  */
+
+    descriptor = -1;
+    called_error_callback = 0;
+
+    for (pass = 0; pass < 4; ++pass) {
+        int does_not_exist = 0;
+
+        switch (pass) {
+        case 0:
+            filename = state->filename;
+            break;
+
+        case 1:
+            filename = getexecname();
+            break;
+
+        case 2:
+            filename = "/proc/self/exe";
+            break;
+
+        case 3:
+            filename = "/proc/curproc/file";
+            break;
+
+        default:
+            abort();
+        }
+
+        if (filename == NULL) {
+            continue;
+        }
+
+        descriptor = backtrace_open(filename, error_callback, data, &does_not_exist);
+
+        if (descriptor < 0 && !does_not_exist) {
+            called_error_callback = 1;
+            break;
+        }
+
+        if (descriptor >= 0) {
+            break;
+        }
+    }
+
+    if (descriptor < 0) {
+        if (!called_error_callback) {
+            if (state->filename != NULL) {
+                error_callback(data, state->filename, ENOENT);
+            } else
+                error_callback(data,
+                               "libbacktrace could not find enclave to open",
+                               0);
+        }
+
+        failed = 1;
+    }
+
+    if (!failed) {
+        if (!backtrace_initialize(state, filename, descriptor, error_callback, data, &fileline_fn)) {
+            failed = 1;
+        }
+    }
+
+    if (failed) {
+        if (!state->threaded) {
+            state->fileline_initialization_failed = 1;
+        } else {
+            backtrace_atomic_store_int(&state->fileline_initialization_failed, 1);
+        }
+
+        return 0;
+    }
+
+    if (!state->threaded) {
+        state->fileline_fn = fileline_fn;
+    } else {
+        backtrace_atomic_store_pointer(&state->fileline_fn, fileline_fn);
+
+        /* Note that if two threads initialize at once, one of the data
+            sets may be leaked.  */
+    }
+
     return 1;
-
-  /* We have not initialized the information.  Do it now.  */
-
-  descriptor = -1;
-  called_error_callback = 0;
-  for (pass = 0; pass < 5; ++pass)
-    {
-      int does_not_exist;
-
-      switch (pass)
-	{
-	case 0:
-	  filename = state->filename;
-	  break;
-	case 1:
-	  filename = getexecname ();
-	  break;
-	case 2:
-	  filename = "/proc/self/exe";
-	  break;
-	case 3:
-	  filename = "/proc/curproc/file";
-	  break;
-	case 4:
-	  snprintf (buf, sizeof (buf), "/proc/%ld/object/a.out",
-		    (long) getpid ());
-	  filename = buf;
-	  break;
-	default:
-	  abort ();
-	}
-
-      if (filename == NULL)
-	continue;
-
-      descriptor = backtrace_open (filename, error_callback, data,
-				   &does_not_exist);
-      if (descriptor < 0 && !does_not_exist)
-	{
-	  called_error_callback = 1;
-	  break;
-	}
-      if (descriptor >= 0)
-	break;
-    }
-
-  if (descriptor < 0)
-    {
-      if (!called_error_callback)
-	{
-	  if (state->filename != NULL)
-	    error_callback (data, state->filename, ENOENT);
-	  else
-	    error_callback (data,
-			    "libbacktrace could not find executable to open",
-			    0);
-	}
-      failed = 1;
-    }
-
-  if (!failed)
-    {
-      if (!backtrace_initialize (state, filename, descriptor, error_callback,
-				 data, &fileline_fn))
-	failed = 1;
-    }
-
-  if (failed)
-    {
-      if (!state->threaded)
-	state->fileline_initialization_failed = 1;
-      else
-	backtrace_atomic_store_int (&state->fileline_initialization_failed, 1);
-      return 0;
-    }
-
-  if (!state->threaded)
-    state->fileline_fn = fileline_fn;
-  else
-    {
-      backtrace_atomic_store_pointer (&state->fileline_fn, fileline_fn);
-
-      /* Note that if two threads initialize at once, one of the data
-	 sets may be leaked.  */
-    }
-
-  return 1;
 }
 
 /* Given a PC, find the file name, line number, and function name.  */
 
 int
-backtrace_pcinfo (struct backtrace_state *state, uintptr_t pc,
-		  backtrace_full_callback callback,
-		  backtrace_error_callback error_callback, void *data)
-{
-  if (!fileline_initialize (state, error_callback, data))
-    return 0;
+backtrace_pcinfo(struct backtrace_state* state, uintptr_t pc,
+                 backtrace_full_callback callback,
+                 backtrace_error_callback error_callback, void* data) {
+    if (!fileline_initialize(state, error_callback, data)) {
+        return 0;
+    }
 
-  if (state->fileline_initialization_failed)
-    return 0;
+    if (state->fileline_initialization_failed) {
+        return 0;
+    }
 
-  return state->fileline_fn (state, pc, callback, error_callback, data);
+    return state->fileline_fn(state, pc, callback, error_callback, data);
 }
 
 /* Given a PC, find the symbol for it, and its value.  */
 
 int
-backtrace_syminfo (struct backtrace_state *state, uintptr_t pc,
-		   backtrace_syminfo_callback callback,
-		   backtrace_error_callback error_callback, void *data)
-{
-  if (!fileline_initialize (state, error_callback, data))
-    return 0;
+backtrace_syminfo(struct backtrace_state* state, uintptr_t pc,
+                  backtrace_syminfo_callback callback,
+                  backtrace_error_callback error_callback, void* data) {
+    if (!fileline_initialize(state, error_callback, data)) {
+        return 0;
+    }
 
-  if (state->fileline_initialization_failed)
-    return 0;
+    if (state->fileline_initialization_failed) {
+        return 0;
+    }
 
-  state->syminfo_fn (state, pc, callback, error_callback, data);
-  return 1;
+    state->syminfo_fn(state, pc, callback, error_callback, data);
+    return 1;
 }
